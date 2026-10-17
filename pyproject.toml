@@ -5,8 +5,9 @@ description = ""
 authors = [
     {name = "Diana Paramonova",email = "dparamonova638@gmail.com"}
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.10,<3.16"
 dependencies = [
+    "pyside6 (>=6.12.0,<7.0.0)"
 ]
 
 
