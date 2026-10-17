@@ -1,6 +1,6 @@
 import random
 
-from src.core.task import Task
+from src.MathTrainer.core.task import Task
 
 
 def addition_generators(limit: int) -> Task:
@@ -9,6 +9,3 @@ def addition_generators(limit: int) -> Task:
     a = random.randint(0, ans)
     b = ans - a
     return Task(text=f"{a} + {b} = ?", answer=ans)
-
-
-print(addition_generators(20))
