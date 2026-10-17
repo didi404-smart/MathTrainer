@@ -1,17 +1,45 @@
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QPushButton,
-    QLabel, QLineEdit, QHBoxLayout, QStackedWidget
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QPushButton,
+    QLabel,
+    QLineEdit,
+    QHBoxLayout,
+    QStackedWidget,
 )
 from PySide6.QtGui import QIntValidator
 
-try:
-    from MathTrainer.generators import addition_generators, subtraction_generators
-except ImportError:
-    # если src не помечен как Sources Root в PyCharm
-    from src.MathTrainer.generators import addition_generators, subtraction_generators
+# Импорты под твою текущую структуру (через src.MathTrainer...)
+from src.MathTrainer.generators.addition import addition_generators
+from src.MathTrainer.generators.subtraction import subtraction_generators
+from src.MathTrainer.generators.multiplication import (
+    multiplication_table_10_10,
+    multiplication_one_digit,
+    multiplication_two_digit,
+    multiplication_three_digit,
+    multiplication_four_digit,
+    multiplication_all,
+)
 
+STYLE_OK = (
+    "font-size: 22px; padding: 10px;"
+    "border: 2px solid #222; border-radius: 12px;"
+    "background: #FFFFFF; color: #000000;"
+)
+STYLE_ERR = (
+    "font-size: 22px; padding: 10px;"
+    "border: 2px solid #D32F2F; border-radius: 12px;"
+    "background: #FFEBEE; color: #000000;"
+)
+STYLE_SUCCESS = (
+    "font-size: 22px; padding: 10px;"
+    "border: 2px solid #2E7D32; border-radius: 12px;"
+    "background: #E8F5E9; color: #000000;"
+)
 
-LEVELS = [
+ADD_SUB_LEVELS = [
     ("до 20", 20),
     ("до 50", 50),
     ("до 100", 100),
@@ -20,27 +48,36 @@ LEVELS = [
     ("до 1000000000", 1_000_000_000),
 ]
 
-STYLE_OK = (
-    "font-size: 22px; padding: 10px;"
-    "border: 2px solid #222; border-radius: 12px;"
-    "background: #FFFFFF; color: #000000;"
-)
 
-STYLE_ERR = (
-    "font-size: 22px; padding: 10px;"
-    "border: 2px solid #D32F2F; border-radius: 12px;"
-    "background: #FFEBEE; color: #000000;"
-)
+def make_variants_addition():
+    # generator0 должен быть функцией БЕЗ аргументов, которая возвращает Task
+    return [(f"Сложение {name}", (lambda lim=lim: addition_generators(lim))) for name, lim in ADD_SUB_LEVELS]
 
-STYLE_SUCCESS = (
-    "font-size: 22px; padding: 10px;"
-    "border: 2px solid #2E7D32; border-radius: 12px;"
-    "background: #E8F5E9; color: #000000;"
-)
+
+def make_variants_subtraction():
+    return [(f"Вычитание {name}", (lambda lim=lim: subtraction_generators(lim))) for name, lim in ADD_SUB_LEVELS]
+
+
+def make_variants_multiplication():
+    return [
+        ("Таблица умножения (10×10)", multiplication_table_10_10),
+        ("Умножение на однозначное", multiplication_one_digit),
+        ("Умножение на двузначное", multiplication_two_digit),
+        ("Умножение на трехзначное", multiplication_three_digit),
+        ("Умножение на четырехзначное", multiplication_four_digit),
+        ("Все вместе", multiplication_all),
+    ]
+
+
+TOPICS = {
+    "Сложение": make_variants_addition,
+    "Вычитание": make_variants_subtraction,
+    "Умножение": make_variants_multiplication,
+}
 
 
 class MainMenuPage(QWidget):
-    def __init__(self, open_levels):
+    def __init__(self, open_variants):
         super().__init__()
         layout = QVBoxLayout(self)
 
@@ -48,60 +85,64 @@ class MainMenuPage(QWidget):
         title.setStyleSheet("font-size: 26px;")
         layout.addWidget(title)
 
-        btn_add = QPushButton("Сложение")
-        btn_add.setStyleSheet("font-size: 20px; padding: 12px;")
-        btn_add.clicked.connect(lambda: open_levels("Сложение", addition_generators))
-        layout.addWidget(btn_add)
-
-        btn_sub = QPushButton("Вычитание")
-        btn_sub.setStyleSheet("font-size: 20px; padding: 12px;")
-        btn_sub.clicked.connect(lambda: open_levels("Вычитание", subtraction_generators))
-        layout.addWidget(btn_sub)
+        for topic_name in TOPICS.keys():
+            btn = QPushButton(topic_name)
+            btn.setStyleSheet("font-size: 20px; padding: 12px;")
+            btn.clicked.connect(lambda _=False, name=topic_name: open_variants(name))
+            layout.addWidget(btn)
 
         layout.addStretch(1)
 
 
-class LevelsPage(QWidget):
+class VariantsPage(QWidget):
     def __init__(self, open_trainer, go_back):
         super().__init__()
         self.open_trainer = open_trainer
         self.go_back = go_back
 
-        self.topic_name = ""
-        self.generator = None
+        self.layout = QVBoxLayout(self)
 
-        layout = QVBoxLayout(self)
+        self.btn_back = QPushButton("← Назад")
+        self.btn_back.clicked.connect(self.go_back)
+        self.layout.addWidget(self.btn_back)
 
-        btn_back = QPushButton("← Назад")
-        btn_back.clicked.connect(self.go_back)
-        layout.addWidget(btn_back)
-
-        self.lblTitle = QLabel("Выберите уровень")
+        self.lblTitle = QLabel("Выберите режим")
         self.lblTitle.setStyleSheet("font-size: 22px;")
-        layout.addWidget(self.lblTitle)
+        self.layout.addWidget(self.lblTitle)
 
-        for text, limit in LEVELS:
-            btn = QPushButton(text)
+        self.btns_container = QVBoxLayout()
+        self.layout.addLayout(self.btns_container)
+
+        self.layout.addStretch(1)
+
+    def _clear_container(self):
+        while self.btns_container.count():
+            item = self.btns_container.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+    def set_topic(self, topic_name: str, variants: list[tuple[str, callable]]):
+        self.lblTitle.setText(f"Выберите режим ({topic_name})")
+
+        self._clear_container()
+        for variant_name, generator0 in variants:
+            btn = QPushButton(variant_name)
             btn.setStyleSheet("font-size: 18px; padding: 10px;")
-            btn.clicked.connect(lambda _=False, lim=limit: self.open_trainer(self.topic_name, self.generator, lim))
-            layout.addWidget(btn)
-
-        layout.addStretch(1)
-
-    def set_topic(self, topic_name, generator):
-        self.topic_name = topic_name
-        self.generator = generator
-        self.lblTitle.setText(f"Выберите уровень ({topic_name})")
+            btn.clicked.connect(
+                lambda _=False, t=topic_name, v=variant_name, gen=generator0: self.open_trainer(t, v, gen)
+            )
+            self.btns_container.addWidget(btn)
 
 
 class TrainerPage(QWidget):
-    def __init__(self, go_back_to_levels):
+    def __init__(self, go_back_to_variants):
         super().__init__()
-        self.go_back_to_levels = go_back_to_levels
+        self.go_back_to_variants = go_back_to_variants
 
         self.topic_name = ""
-        self.generator = None
-        self.limit = 20
+        self.variant_name = ""
+        self.generator0 = None  # функция без аргументов -> Task
         self.current_task = None
 
         self.first_mistake_happened = False
@@ -111,7 +152,7 @@ class TrainerPage(QWidget):
 
         top = QHBoxLayout()
         self.btnBack = QPushButton("← Назад")
-        self.btnBack.clicked.connect(self.go_back_to_levels)
+        self.btnBack.clicked.connect(self.go_back_to_variants)
         top.addWidget(self.btnBack)
         top.addStretch(1)
         root.addLayout(top)
@@ -126,12 +167,13 @@ class TrainerPage(QWidget):
 
         self.editAnswer = QLineEdit()
         self.editAnswer.setPlaceholderText("Введите ответ")
+        # Результаты у тебя <= 999_900_000, это влезает в 32-bit int
         self.editAnswer.setValidator(QIntValidator(-2_147_483_648, 2_147_483_647, self))
         self.editAnswer.setStyleSheet(STYLE_OK)
         root.addWidget(self.editAnswer)
 
         self.lblCorrectAnswer = QLabel("")
-        self.lblCorrectAnswer.setStyleSheet("font-size: 18px; color:  	#D3D3D3;")
+        self.lblCorrectAnswer.setStyleSheet("font-size: 18px; color: #D3D3D3;")
         self.lblCorrectAnswer.hide()
         root.addWidget(self.lblCorrectAnswer)
 
@@ -157,24 +199,28 @@ class TrainerPage(QWidget):
         self.editAnswer.returnPressed.connect(self.check_answer)
         self.editAnswer.textEdited.connect(self.on_text_edited)
 
-    def start(self, topic_name: str, generator, limit: int):
+    def start(self, topic_name: str, variant_name: str, generator0):
         self.topic_name = topic_name
-        self.generator = generator
-        self.limit = limit
-        self.lblTitle.setText(f"Режим: подготовка • {topic_name} {limit=}")
+        self.variant_name = variant_name
+        self.generator0 = generator0
+
+        self.lblTitle.setText(f"Режим: подготовка • {topic_name} • {variant_name}")
         self.next_task()
 
     def reset_ui_for_new_task(self):
         self.first_mistake_happened = False
         self.solved = False
+
         self.btnShow.hide()
         self.btnNext.hide()
+
         self.lblCorrectAnswer.hide()
         self.lblCorrectAnswer.setText("")
+
         self.editAnswer.setStyleSheet(STYLE_OK)
 
     def next_task(self):
-        self.current_task = self.generator(self.limit)
+        self.current_task = self.generator0()
         self.lblTask.setText(self.current_task.text)
         self.editAnswer.clear()
         self.reset_ui_for_new_task()
@@ -220,12 +266,12 @@ class App(QMainWindow):
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
-        self.page_menu = MainMenuPage(open_levels=self.open_levels)
-        self.page_levels = LevelsPage(open_trainer=self.open_trainer, go_back=self.open_menu)
-        self.page_trainer = TrainerPage(go_back_to_levels=self.open_levels_page)
+        self.page_menu = MainMenuPage(open_variants=self.open_variants)
+        self.page_variants = VariantsPage(open_trainer=self.open_trainer, go_back=self.open_menu)
+        self.page_trainer = TrainerPage(go_back_to_variants=self.open_variants_page)
 
         self.stack.addWidget(self.page_menu)
-        self.stack.addWidget(self.page_levels)
+        self.stack.addWidget(self.page_variants)
         self.stack.addWidget(self.page_trainer)
 
         self.open_menu()
@@ -233,15 +279,16 @@ class App(QMainWindow):
     def open_menu(self):
         self.stack.setCurrentWidget(self.page_menu)
 
-    def open_levels(self, topic_name, generator):
-        self.page_levels.set_topic(topic_name, generator)
-        self.open_levels_page()
+    def open_variants(self, topic_name: str):
+        variants = TOPICS[topic_name]()  # [(variant_name, generator0), ...]
+        self.page_variants.set_topic(topic_name, variants)
+        self.open_variants_page()
 
-    def open_levels_page(self):
-        self.stack.setCurrentWidget(self.page_levels)
+    def open_variants_page(self):
+        self.stack.setCurrentWidget(self.page_variants)
 
-    def open_trainer(self, topic_name, generator, limit: int):
-        self.page_trainer.start(topic_name, generator, limit)
+    def open_trainer(self, topic_name: str, variant_name: str, generator0):
+        self.page_trainer.start(topic_name, variant_name, generator0)
         self.stack.setCurrentWidget(self.page_trainer)
 
 
