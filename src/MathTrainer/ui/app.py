@@ -1,31 +1,23 @@
 from PySide6.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QPushButton,
-    QLabel,
-    QLineEdit,
-    QHBoxLayout,
-    QStackedWidget,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QPushButton,
+    QLabel, QLineEdit, QHBoxLayout, QStackedWidget
 )
 from PySide6.QtGui import QIntValidator
 
-# Импорт генератора (сделал "двойной" вариант, чтобы у тебя точно завелось
-# при разных настройках путей в PyCharm / Poetry)
 try:
-    from MathTrainer.generators.addition import addition_generators
+    from MathTrainer.generators import addition_generators, subtraction_generators
 except ImportError:
-    from src.MathTrainer.generators.addition import addition_generators
+    # если src не помечен как Sources Root в PyCharm
+    from src.MathTrainer.generators import addition_generators, subtraction_generators
 
 
 LEVELS = [
-    ("Сложение до 20", 20),
-    ("Сложение до 50", 50),
-    ("Сложение до 100", 100),
-    ("Сложение до 1000", 1000),
-    ("Сложение до 100000", 100_000),
-    ("Сложение до 1000000000", 1_000_000_000),
+    ("до 20", 20),
+    ("до 50", 50),
+    ("до 100", 100),
+    ("до 1000", 1000),
+    ("до 100000", 100_000),
+    ("до 1000000000", 1_000_000_000),
 ]
 
 STYLE_OK = (
@@ -48,7 +40,7 @@ STYLE_SUCCESS = (
 
 
 class MainMenuPage(QWidget):
-    def __init__(self, open_addition_levels):
+    def __init__(self, open_levels):
         super().__init__()
         layout = QVBoxLayout(self)
 
@@ -58,32 +50,48 @@ class MainMenuPage(QWidget):
 
         btn_add = QPushButton("Сложение")
         btn_add.setStyleSheet("font-size: 20px; padding: 12px;")
-        btn_add.clicked.connect(open_addition_levels)
+        btn_add.clicked.connect(lambda: open_levels("Сложение", addition_generators))
         layout.addWidget(btn_add)
+
+        btn_sub = QPushButton("Вычитание")
+        btn_sub.setStyleSheet("font-size: 20px; padding: 12px;")
+        btn_sub.clicked.connect(lambda: open_levels("Вычитание", subtraction_generators))
+        layout.addWidget(btn_sub)
 
         layout.addStretch(1)
 
 
-class AdditionLevelsPage(QWidget):
+class LevelsPage(QWidget):
     def __init__(self, open_trainer, go_back):
         super().__init__()
+        self.open_trainer = open_trainer
+        self.go_back = go_back
+
+        self.topic_name = ""
+        self.generator = None
+
         layout = QVBoxLayout(self)
 
         btn_back = QPushButton("← Назад")
-        btn_back.clicked.connect(go_back)
+        btn_back.clicked.connect(self.go_back)
         layout.addWidget(btn_back)
 
-        title = QLabel("Выберите уровень (сложение)")
-        title.setStyleSheet("font-size: 22px;")
-        layout.addWidget(title)
+        self.lblTitle = QLabel("Выберите уровень")
+        self.lblTitle.setStyleSheet("font-size: 22px;")
+        layout.addWidget(self.lblTitle)
 
         for text, limit in LEVELS:
             btn = QPushButton(text)
             btn.setStyleSheet("font-size: 18px; padding: 10px;")
-            btn.clicked.connect(lambda _=False, lim=limit: open_trainer(lim))
+            btn.clicked.connect(lambda _=False, lim=limit: self.open_trainer(self.topic_name, self.generator, lim))
             layout.addWidget(btn)
 
         layout.addStretch(1)
+
+    def set_topic(self, topic_name, generator):
+        self.topic_name = topic_name
+        self.generator = generator
+        self.lblTitle.setText(f"Выберите уровень ({topic_name})")
 
 
 class TrainerPage(QWidget):
@@ -91,11 +99,13 @@ class TrainerPage(QWidget):
         super().__init__()
         self.go_back_to_levels = go_back_to_levels
 
+        self.topic_name = ""
+        self.generator = None
         self.limit = 20
         self.current_task = None
 
         self.first_mistake_happened = False
-        self.solved = False  # решена ли текущая задача
+        self.solved = False
 
         root = QVBoxLayout(self)
 
@@ -116,13 +126,10 @@ class TrainerPage(QWidget):
 
         self.editAnswer = QLineEdit()
         self.editAnswer.setPlaceholderText("Введите ответ")
-
-        # QIntValidator в Qt работает в диапазоне 32-bit int (для 1_000_000_000 ок)
         self.editAnswer.setValidator(QIntValidator(-2_147_483_648, 2_147_483_647, self))
         self.editAnswer.setStyleSheet(STYLE_OK)
         root.addWidget(self.editAnswer)
 
-        # правильный ответ показываем снизу (НЕ в поле ввода)
         self.lblCorrectAnswer = QLabel("")
         self.lblCorrectAnswer.setStyleSheet("font-size: 18px; color:  	#D3D3D3;")
         self.lblCorrectAnswer.hide()
@@ -133,7 +140,6 @@ class TrainerPage(QWidget):
         self.btnShow = QPushButton("Показать ответ")
         self.btnNext = QPushButton("Следующая задача")
 
-        # По твоим правилам: до первой ошибки и до правильного ответа этих кнопок нет
         self.btnShow.hide()
         self.btnNext.hide()
 
@@ -148,41 +154,34 @@ class TrainerPage(QWidget):
         self.btnShow.clicked.connect(self.show_answer)
         self.btnNext.clicked.connect(self.next_task)
 
-        # Enter = проверить
         self.editAnswer.returnPressed.connect(self.check_answer)
-
-        # если начали править ответ после красного/зелёного — убираем подсветку
         self.editAnswer.textEdited.connect(self.on_text_edited)
 
-    def start(self, limit: int):
+    def start(self, topic_name: str, generator, limit: int):
+        self.topic_name = topic_name
+        self.generator = generator
         self.limit = limit
-        self.lblTitle.setText(f"Режим: подготовка • сложение до {limit}")
+        self.lblTitle.setText(f"Режим: подготовка • {topic_name} {limit=}")
         self.next_task()
 
     def reset_ui_for_new_task(self):
         self.first_mistake_happened = False
         self.solved = False
-
         self.btnShow.hide()
         self.btnNext.hide()
-
         self.lblCorrectAnswer.hide()
         self.lblCorrectAnswer.setText("")
-
         self.editAnswer.setStyleSheet(STYLE_OK)
 
     def next_task(self):
-        self.current_task = addition_generators(self.limit)
+        self.current_task = self.generator(self.limit)
         self.lblTask.setText(self.current_task.text)
         self.editAnswer.clear()
         self.reset_ui_for_new_task()
         self.editAnswer.setFocus()
 
     def on_text_edited(self, _text: str):
-        # если начали редактировать — сбрасываем подсветку
         self.editAnswer.setStyleSheet(STYLE_OK)
-
-        # если задача уже была решена и начали менять — считаем, что снова "в процессе"
         if self.solved:
             self.solved = False
             self.btnNext.hide()
@@ -192,28 +191,17 @@ class TrainerPage(QWidget):
             return
 
         s = self.editAnswer.text().strip()
-        if not s:
-            return
-
-        # если уже решили задачу — повторная проверка не нужна
-        if self.solved:
+        if not s or self.solved:
             return
 
         if int(s) == self.current_task.answer:
-            # Правильно: подсветить зелёным и показать "следующая задача"
             self.editAnswer.setStyleSheet(STYLE_SUCCESS)
             self.btnNext.show()
-
-            # "показать ответ" тут не нужно
             self.btnShow.hide()
             self.lblCorrectAnswer.hide()
-
             self.solved = True
         else:
-            # Неправильно: подсветить красным
             self.editAnswer.setStyleSheet(STYLE_ERR)
-
-            # После первой ошибки появляются кнопки "показать ответ" и "следующая задача"
             if not self.first_mistake_happened:
                 self.first_mistake_happened = True
                 self.btnShow.show()
@@ -232,9 +220,9 @@ class App(QMainWindow):
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
-        self.page_menu = MainMenuPage(open_addition_levels=self.open_addition_levels)
-        self.page_levels = AdditionLevelsPage(open_trainer=self.open_trainer, go_back=self.open_menu)
-        self.page_trainer = TrainerPage(go_back_to_levels=self.open_addition_levels)
+        self.page_menu = MainMenuPage(open_levels=self.open_levels)
+        self.page_levels = LevelsPage(open_trainer=self.open_trainer, go_back=self.open_menu)
+        self.page_trainer = TrainerPage(go_back_to_levels=self.open_levels_page)
 
         self.stack.addWidget(self.page_menu)
         self.stack.addWidget(self.page_levels)
@@ -245,11 +233,15 @@ class App(QMainWindow):
     def open_menu(self):
         self.stack.setCurrentWidget(self.page_menu)
 
-    def open_addition_levels(self):
+    def open_levels(self, topic_name, generator):
+        self.page_levels.set_topic(topic_name, generator)
+        self.open_levels_page()
+
+    def open_levels_page(self):
         self.stack.setCurrentWidget(self.page_levels)
 
-    def open_trainer(self, limit: int):
-        self.page_trainer.start(limit)
+    def open_trainer(self, topic_name, generator, limit: int):
+        self.page_trainer.start(topic_name, generator, limit)
         self.stack.setCurrentWidget(self.page_trainer)
 
 
