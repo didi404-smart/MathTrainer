@@ -1,27 +1,34 @@
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QPushButton,
-    QLabel, QLineEdit, QHBoxLayout, QStackedWidget
-)
-from PySide6.QtGui import QIntValidator, QShortcut, QKeySequence
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIntValidator, QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.MathTrainer.generators.addition import addition_generators
-from src.MathTrainer.generators.subtraction import subtraction_generators
-from src.MathTrainer.generators.multiplication import (
-    multiplication_table_10_10,
-    multiplication_one_digit,
-    multiplication_two_digit,
-    multiplication_three_digit,
-    multiplication_four_digit,
-    multiplication_all,
-)
 from src.MathTrainer.generators.division import (
-    division_table_10_10,
-    division_one_digit,
-    division_two_digit,
-    division_three_digit,
     division_all,
+    division_one_digit,
+    division_table_10_10,
+    division_three_digit,
+    division_two_digit,
 )
+from src.MathTrainer.generators.multiplication import (
+    multiplication_all,
+    multiplication_four_digit,
+    multiplication_one_digit,
+    multiplication_table_10_10,
+    multiplication_three_digit,
+    multiplication_two_digit,
+)
+from src.MathTrainer.generators.subtraction import subtraction_generators
 
 STYLE_OK = (
     "font-size: 22px; padding: 10px;"

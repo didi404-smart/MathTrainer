@@ -1,4 +1,5 @@
 import random
+
 from src.MathTrainer.core.task import Task
 
 
