@@ -3,6 +3,7 @@ from PySide6.QtGui import QIntValidator, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -50,6 +51,9 @@ STYLE_SUCCESS = (
     "border: 2px solid #2E7D32; border-radius: 12px;"
     "background: #E8F5E9; color: #000000;"
 )
+
+QUIZ_DEFAULT_QUESTIONS = 10
+QUIZ_MAX_QUESTIONS = 100
 
 ADD_SUB_LEVELS = [
     ("до 20", 20),
@@ -164,7 +168,7 @@ class VariantsPage(QWidget):
                 w.deleteLater()
 
     def set_topic(self, topic_name, variants):
-        self.lblTitle.setText(f"Выберите режим ({topic_name})")
+        self.lblTitle.setText(f"Выберите уровень ({topic_name})")
 
         self._clear_container()
         for variant_name, target in variants:
@@ -183,10 +187,44 @@ class VariantsPage(QWidget):
             self.btns_container.addWidget(btn)
 
 
-class TrainerPage(QWidget):
-    def __init__(self, go_back_to_variants):
+class ModePage(QWidget):
+    """Выбор режима: подготовка или тест."""
+
+    def __init__(self, go_back, open_preparation, open_test):
         super().__init__()
-        self.go_back_to_variants = go_back_to_variants
+        layout = QVBoxLayout(self)
+
+        btn_back = QPushButton("← Назад")
+        btn_back.clicked.connect(go_back)
+        layout.addWidget(btn_back)
+
+        self.lblTitle = QLabel("Выберите режим")
+        self.lblTitle.setStyleSheet("font-size: 22px;")
+        self.lblTitle.setWordWrap(True)
+        layout.addWidget(self.lblTitle)
+
+        btn_prep = QPushButton("Подготовка")
+        btn_prep.setStyleSheet("font-size: 20px; padding: 12px;")
+        btn_prep.clicked.connect(open_preparation)
+        layout.addWidget(btn_prep)
+
+        btn_test = QPushButton("Тест")
+        btn_test.setStyleSheet("font-size: 20px; padding: 12px;")
+        btn_test.clicked.connect(open_test)
+        layout.addWidget(btn_test)
+
+        layout.addStretch(1)
+
+    def set_selection(self, topic_name, variant_name):
+        self.lblTitle.setText(f"Выберите режим • {topic_name} • {variant_name}")
+
+
+class TrainerPage(QWidget):
+    """Режим «Подготовка»: можно ошибаться, есть подсказка с ответом."""
+
+    def __init__(self, go_back):
+        super().__init__()
+        self.go_back = go_back
 
         self.topic_name = ""
         self.variant_name = ""
@@ -200,7 +238,7 @@ class TrainerPage(QWidget):
 
         top = QHBoxLayout()
         self.btnBack = QPushButton("← Назад")
-        self.btnBack.clicked.connect(self.go_back_to_variants)
+        self.btnBack.clicked.connect(self.go_back)
         top.addWidget(self.btnBack)
         top.addStretch(1)
         root.addLayout(top)
@@ -330,27 +368,212 @@ class TrainerPage(QWidget):
         self.lblCorrectAnswer.show()
 
 
+class QuizPage(QWidget):
+    """Режим «Тест»: на каждый вопрос одна попытка."""
+
+    def __init__(self, go_back, show_result):
+        super().__init__()
+        self.go_back = go_back
+        self.show_result = show_result
+
+        self.generator0 = None
+        self.current_task = None
+        self.total = 0
+        self.index = 0      # номер текущего вопроса (с 1)
+        self.correct = 0
+        self.answered = False
+
+        root = QVBoxLayout(self)
+
+        top = QHBoxLayout()
+        self.btnBack = QPushButton("← Назад")
+        self.btnBack.clicked.connect(self.go_back)
+        top.addWidget(self.btnBack)
+        top.addStretch(1)
+        root.addLayout(top)
+
+        self.lblTitle = QLabel("")
+        self.lblTitle.setStyleSheet("font-size: 18px; color: #444;")
+        root.addWidget(self.lblTitle)
+
+        self.lblProgress = QLabel("")
+        self.lblProgress.setStyleSheet("font-size: 20px;")
+        root.addWidget(self.lblProgress)
+
+        self.lblTask = QLabel("Задача")
+        self.lblTask.setStyleSheet("font-size: 28px;")
+        self.lblTask.setAlignment(Qt.AlignCenter)
+        self.lblTask.setWordWrap(True)
+        root.addWidget(self.lblTask)
+
+        self.editAnswer = QLineEdit()
+        self.editAnswer.setPlaceholderText("Введите ответ")
+        self.editAnswer.setValidator(QIntValidator(-2_147_483_648, 2_147_483_647, self))
+        self.editAnswer.setStyleSheet(STYLE_OK)
+        root.addWidget(self.editAnswer)
+
+        self.lblCorrectAnswer = QLabel("")
+        self.lblCorrectAnswer.setStyleSheet("font-size: 18px; color: #444;")
+        self.lblCorrectAnswer.setAlignment(Qt.AlignCenter)
+        self.lblCorrectAnswer.setWordWrap(True)
+        self.lblCorrectAnswer.hide()
+        root.addWidget(self.lblCorrectAnswer)
+
+        row = QHBoxLayout()
+        self.btnCheck = QPushButton("Ответить")
+        self.btnNext = QPushButton("Следующий вопрос")
+        self.btnNext.hide()
+        row.addWidget(self.btnCheck)
+        row.addWidget(self.btnNext)
+        root.addLayout(row)
+
+        root.addStretch(1)
+
+        self.btnCheck.clicked.connect(self.check_answer)
+        self.btnNext.clicked.connect(self.next_question)
+
+        # Enter: answered=False -> ответить, answered=True -> дальше
+        self.sc_return = QShortcut(QKeySequence(Qt.Key_Return), self)
+        self.sc_enter = QShortcut(QKeySequence(Qt.Key_Enter), self)
+        for sc in (self.sc_return, self.sc_enter):
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.activated.connect(self.on_enter)
+
+    def on_enter(self):
+        if self.answered:
+            self.next_question()
+        else:
+            self.check_answer()
+
+    def start(self, topic_name, variant_name, generator0, total):
+        self.generator0 = generator0
+        self.total = total
+        self.index = 0
+        self.correct = 0
+        self.lblTitle.setText(f"Режим: тест • {topic_name} • {variant_name}")
+        self.next_question()
+
+    def next_question(self):
+        if self.index >= self.total:
+            self.show_result(self.correct, self.total)
+            return
+
+        self.index += 1
+        self.answered = False
+        self.current_task = self.generator0()
+
+        self.lblProgress.setText(f"Вопрос {self.index} из {self.total}")
+        self.lblTask.setText(self.current_task.text)
+
+        self.editAnswer.clear()
+        self.editAnswer.setDisabled(False)
+        self.editAnswer.setStyleSheet(STYLE_OK)
+        self.lblCorrectAnswer.hide()
+        self.lblCorrectAnswer.setText("")
+
+        self.btnCheck.show()
+        self.btnNext.hide()
+        self.editAnswer.setFocus()
+
+    def check_answer(self):
+        if self.current_task is None or self.answered:
+            return
+
+        s = self.editAnswer.text().strip()
+        if not s:
+            return
+
+        self.answered = True
+        self.editAnswer.setDisabled(True)
+
+        if int(s) == self.current_task.answer:
+            self.correct += 1
+            self.editAnswer.setStyleSheet(STYLE_SUCCESS)
+        else:
+            self.editAnswer.setStyleSheet(STYLE_ERR)
+            self.lblCorrectAnswer.setText(f"Правильный ответ: {self.current_task.answer}")
+            self.lblCorrectAnswer.show()
+
+        self.btnCheck.hide()
+        self.btnNext.setText("Завершить тест" if self.index == self.total else "Следующий вопрос")
+        self.btnNext.show()
+        self.btnNext.setFocus()
+
+
+class QuizResultPage(QWidget):
+    def __init__(self, restart, go_to_modes):
+        super().__init__()
+        layout = QVBoxLayout(self)
+
+        self.lblHeader = QLabel("Тест завершён")
+        self.lblHeader.setStyleSheet("font-size: 26px;")
+        self.lblHeader.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lblHeader)
+
+        self.lblResult = QLabel("")
+        self.lblResult.setStyleSheet("font-size: 28px;")
+        self.lblResult.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lblResult)
+
+        self.lblPercent = QLabel("")
+        self.lblPercent.setStyleSheet("font-size: 20px; color: #444;")
+        self.lblPercent.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lblPercent)
+
+        btn_again = QPushButton("Пройти ещё раз")
+        btn_again.setStyleSheet("font-size: 18px; padding: 10px;")
+        btn_again.clicked.connect(restart)
+        layout.addWidget(btn_again)
+
+        btn_modes = QPushButton("К выбору режима")
+        btn_modes.setStyleSheet("font-size: 18px; padding: 10px;")
+        btn_modes.clicked.connect(go_to_modes)
+        layout.addWidget(btn_modes)
+
+        layout.addStretch(1)
+
+    def set_result(self, correct, total):
+        percent = round(correct * 100 / total) if total else 0
+        self.lblResult.setText(f"Правильных ответов: {correct} из {total}")
+        self.lblPercent.setText(f"{percent}%")
+
+
 class App(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MathTrainer")
 
         self.variants_history = []  # стек открытых экранов выбора: (название, варианты)
+        self.selection = None       # (тема, уровень, генератор), выбранные пользователем
+        self.quiz_total = QUIZ_DEFAULT_QUESTIONS
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
         self.page_menu = MainMenuPage(open_variants=self.open_variants)
         self.page_variants = VariantsPage(
-            open_trainer=self.open_trainer,
+            open_trainer=self.open_modes,
             open_submenu=self.show_variants,
             go_back=self.variants_back,
         )
-        self.page_trainer = TrainerPage(go_back_to_variants=self.open_variants_page)
+        self.page_modes = ModePage(
+            go_back=self.open_variants_page,
+            open_preparation=self.start_preparation,
+            open_test=self.start_quiz,
+        )
+        self.page_trainer = TrainerPage(go_back=self.open_modes_page)
+        self.page_quiz = QuizPage(go_back=self.open_modes_page, show_result=self.open_quiz_result)
+        self.page_result = QuizResultPage(restart=self.restart_quiz, go_to_modes=self.open_modes_page)
 
-        self.stack.addWidget(self.page_menu)
-        self.stack.addWidget(self.page_variants)
-        self.stack.addWidget(self.page_trainer)
+        for page in (
+            self.page_menu,
+            self.page_variants,
+            self.page_modes,
+            self.page_trainer,
+            self.page_quiz,
+            self.page_result,
+        ):
+            self.stack.addWidget(page)
 
         self.open_menu()
 
@@ -377,9 +600,56 @@ class App(QMainWindow):
     def open_variants_page(self):
         self.stack.setCurrentWidget(self.page_variants)
 
-    def open_trainer(self, topic_name: str, variant_name: str, generator0):
-        self.page_trainer.start(topic_name, variant_name, generator0)
+    # --- выбор режима ---
+
+    def open_modes(self, topic_name: str, variant_name: str, generator0):
+        self.selection = (topic_name, variant_name, generator0)
+        self.page_modes.set_selection(topic_name, variant_name)
+        self.open_modes_page()
+
+    def open_modes_page(self):
+        self.stack.setCurrentWidget(self.page_modes)
+
+    # --- подготовка ---
+
+    def start_preparation(self):
+        self.page_trainer.start(*self.selection)
         self.stack.setCurrentWidget(self.page_trainer)
+
+    # --- тест ---
+
+    def ask_questions_count(self):
+        """Возвращает количество вопросов или None, если пользователь отказался."""
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("Тест")
+        dialog.setLabelText("Сколько вопросов в тесте?")
+        dialog.setInputMode(QInputDialog.IntInput)
+        dialog.setIntRange(1, QUIZ_MAX_QUESTIONS)
+        dialog.setIntValue(self.quiz_total)
+        dialog.setOkButtonText("Начать")
+        dialog.setCancelButtonText("Отмена")
+        if dialog.exec():
+            return dialog.intValue()
+        return None
+
+    def start_quiz(self):
+        total = self.ask_questions_count()
+        if total is None:
+            return
+        self.quiz_total = total
+        self.run_quiz()
+
+    def run_quiz(self):
+        topic_name, variant_name, generator0 = self.selection
+        self.page_quiz.start(topic_name, variant_name, generator0, self.quiz_total)
+        self.stack.setCurrentWidget(self.page_quiz)
+
+    def restart_quiz(self):
+        self.run_quiz()
+
+    def open_quiz_result(self, correct: int, total: int):
+        self.page_result.set_result(correct, total)
+        self.stack.setCurrentWidget(self.page_result)
 
 
 def main():
