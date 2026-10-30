@@ -20,6 +20,11 @@ from src.MathTrainer.generators.division import (
     division_three_digit,
     division_two_digit,
 )
+from src.MathTrainer.generators.equations import (
+    equations_add_sub,
+    equations_mix,
+    equations_mul_div,
+)
 from src.MathTrainer.generators.multiplication import (
     multiplication_all,
     multiplication_four_digit,
@@ -85,11 +90,29 @@ def make_variants_division():
     ]
 
 
+def _equation_levels(generator, first_label="до 100"):
+    return [
+        (first_label, lambda: generator(100)),
+        ("до 1000", lambda: generator(1000)),
+        ("Случайно", generator),  # без limit предел выбирается случайно
+    ]
+
+
+def make_variants_equations():
+    # вариант, у которого вместо функции стоит список, открывает подменю
+    return [
+        ("Сложение и вычитание", _equation_levels(equations_add_sub)),
+        ("Умножение и деление", _equation_levels(equations_mul_div, "до 100 (таблица умножения)")),
+        ("Смешанные", _equation_levels(equations_mix)),
+    ]
+
+
 TOPICS = {
     "Сложение": make_variants_addition,
     "Вычитание": make_variants_subtraction,
     "Умножение": make_variants_multiplication,
     "Деление": make_variants_division,
+    "Уравнения": make_variants_equations,
 }
 
 
@@ -112,9 +135,10 @@ class MainMenuPage(QWidget):
 
 
 class VariantsPage(QWidget):
-    def __init__(self, open_trainer, go_back):
+    def __init__(self, open_trainer, open_submenu, go_back):
         super().__init__()
         self.open_trainer = open_trainer
+        self.open_submenu = open_submenu
         self.go_back = go_back
 
         self.layout = QVBoxLayout(self)
@@ -143,12 +167,19 @@ class VariantsPage(QWidget):
         self.lblTitle.setText(f"Выберите режим ({topic_name})")
 
         self._clear_container()
-        for variant_name, generator0 in variants:
+        for variant_name, target in variants:
             btn = QPushButton(variant_name)
             btn.setStyleSheet("font-size: 18px; padding: 10px;")
-            btn.clicked.connect(
-                lambda _=False, t=topic_name, v=variant_name, gen=generator0: self.open_trainer(t, v, gen)
-            )
+            if isinstance(target, list):  # подменю
+                btn.clicked.connect(
+                    lambda _=False, t=topic_name, v=variant_name, sub=target:
+                    self.open_submenu(f"{t} • {v}", sub)
+                )
+            else:  # генератор задач
+                btn.clicked.connect(
+                    lambda _=False, t=topic_name, v=variant_name, gen=target:
+                    self.open_trainer(t, v, gen)
+                )
             self.btns_container.addWidget(btn)
 
 
@@ -304,11 +335,17 @@ class App(QMainWindow):
         super().__init__()
         self.setWindowTitle("MathTrainer")
 
+        self.variants_history = []  # стек открытых экранов выбора: (название, варианты)
+
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
         self.page_menu = MainMenuPage(open_variants=self.open_variants)
-        self.page_variants = VariantsPage(open_trainer=self.open_trainer, go_back=self.open_menu)
+        self.page_variants = VariantsPage(
+            open_trainer=self.open_trainer,
+            open_submenu=self.show_variants,
+            go_back=self.variants_back,
+        )
         self.page_trainer = TrainerPage(go_back_to_variants=self.open_variants_page)
 
         self.stack.addWidget(self.page_menu)
@@ -321,9 +358,21 @@ class App(QMainWindow):
         self.stack.setCurrentWidget(self.page_menu)
 
     def open_variants(self, topic_name: str):
-        variants = TOPICS[topic_name]()
-        self.page_variants.set_topic(topic_name, variants)
+        self.variants_history = []
+        self.show_variants(topic_name, TOPICS[topic_name]())
+
+    def show_variants(self, title: str, variants):
+        self.variants_history.append((title, variants))
+        self.page_variants.set_topic(title, variants)
         self.open_variants_page()
+
+    def variants_back(self):
+        self.variants_history.pop()
+        if self.variants_history:
+            title, variants = self.variants_history[-1]
+            self.page_variants.set_topic(title, variants)
+        else:
+            self.open_menu()
 
     def open_variants_page(self):
         self.stack.setCurrentWidget(self.page_variants)
